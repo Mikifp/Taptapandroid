@@ -1,4 +1,4 @@
-# Tap Tap for Android
+# Tap Tap (Android app + web app)
 
 An Android rhythm game modelled on *Tap Tap Revenge 3* (iOS): three lanes, notes falling to a hit line,
 hold notes, a streak multiplier up to x4, and PERFECT / GREAT / GOOD / MISS judging.
@@ -11,6 +11,7 @@ This is a clean re-implementation. It contains **no** code or assets from the or
 |---|---|
 | `core/` | Pure Kotlin game logic: chart model, scoring (`Judge`), built-in demo song. Unit-tested. |
 | `app/` | Android UI: menu, `GameView` (SurfaceView renderer + touch), audio via `MediaPlayer`. |
+| `web/` | The same game as an installable web app (PWA). Imports your IPA in the browser. See below. |
 | `tools/ipa_to_assets.py` | Converts the tracks of a TTR3 `.ipa` into charts + audio the app can play. |
 
 A built-in original demo song ("Neon Pulse", 4 difficulties) is generated at runtime, so the app is playable
@@ -44,3 +45,21 @@ workflow does the same on every push and uploads the APK.
 ## Controls
 
 Tap a lane when a note reaches the ring. Keep your finger down for hold notes. Back pauses.
+
+## Web version
+
+`web/` is a static site: no build step, no dependencies. Serve the folder with any web server, for example
+`cd web && npx serve`, or let the `Web build` workflow publish it to GitHub Pages (enable Pages with source
+"GitHub Actions"; it deploys from the default branch). On a phone, open the page and use "Add to Home screen".
+
+* **Demo song** "Neon Pulse" works out of the box.
+* **Your songs:** tap "Import .ipa" and pick your copy of the game. The IPA is read in the browser
+  (zip, binary plist, MIDI), the songs are stored in IndexedDB on that device and nothing is uploaded.
+  The song audio is AAC (`.m4a`), which Chrome, Safari and Firefox decode. Chromium builds without
+  proprietary codecs cannot.
+* **Timing offset** slider compensates for device or Bluetooth audio latency.
+* Keyboard on desktop: arrows, Z X C or J K L; Esc pauses.
+
+Tests: `cd web && npm test` (judge, demo charts, importer). Set `TTR_IPA=/path/to/game.ipa` to also run the
+importer against a real IPA; with `TTR_CONVERTED=<assets/tracks>` it is compared note-for-note with the
+Python converter.

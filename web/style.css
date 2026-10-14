@@ -1,0 +1,26 @@
+:root { color-scheme: dark; --bg: #120a24; --card: #2a1b4a; --muted: #b9a8e0; --accent: #ff4d6d; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: #fff; font-family: system-ui, sans-serif; }
+#menu { max-width: 560px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px 40px; }
+h1 { text-align: center; letter-spacing: .08em; margin: 18px 0 14px; }
+h2 { margin: 0 0 6px; font-size: 1.05rem; }
+.card { background: var(--card); border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+.head { display: flex; gap: 12px; align-items: center; }
+.head img, .noart { width: 56px; height: 56px; border-radius: 8px; flex: none; }
+.noart { display: grid; place-items: center; background: #3c286e; font-size: 1.6rem; }
+.title { font-weight: 700; font-size: 1.1rem; }
+.artist { color: var(--muted); font-size: .85rem; }
+.levels { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+.lvl, .btn { font: inherit; color: #fff; background: #4a3290; border: 0; border-radius: 10px; padding: 11px 4px; cursor: pointer; }
+.lvl small { display: block; color: var(--muted); font-size: .7rem; margin-top: 2px; }
+.lvl:active, .btn:active { background: var(--accent); }
+.panel { background: #1b1233; border-radius: 14px; padding: 14px; margin-top: 14px; }
+.panel p { color: var(--muted); font-size: .88rem; margin: 6px 0 10px; }
+.btn { display: inline-block; padding: 11px 18px; text-align: center; }
+.ghost { background: transparent; border: 1px solid #4a3290; margin-left: 8px; }
+input[type=range] { width: 100%; }
+code { background: #2a1b4a; padding: 1px 5px; border-radius: 4px; }
+.hint { color: var(--muted); font-size: .8rem; text-align: center; margin-top: 18px; }
+#stage { position: fixed; inset: 0; background: #000; touch-action: none; }
+#canvas { width: 100%; height: 100%; display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
+[hidden] { display: none !important; }

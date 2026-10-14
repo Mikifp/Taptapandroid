@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#120a24">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Tap Tap</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="menu">
+    <h1>TAP TAP</h1>
+    <div id="songs"></div>
+    <section class="panel">
+      <h2>Your songs</h2>
+      <p>Import your own copy of the Tap Tap Revenge 3 <code>.ipa</code>. It is read on this device only and never uploaded.</p>
+      <label class="btn">Import .ipa<input id="import" type="file" accept=".ipa,.zip,application/octet-stream" hidden></label>
+      <button id="clear" class="btn ghost" hidden>Remove imported songs</button>
+      <p id="status" role="status"></p>
+    </section>
+    <section class="panel">
+      <h2>Timing offset</h2>
+      <p>If you tend to hit late, raise this. If early, lower it. <b id="offsetLabel">0 ms</b></p>
+      <input id="offset" type="range" min="-200" max="200" step="5" value="0">
+    </section>
+    <p class="hint">Tap a lane when a note reaches the ring and hold long notes. Keyboard: arrow keys, Z X C or J K L. Esc pauses.</p>
+  </main>
+  <div id="stage" hidden><canvas id="canvas"></canvas></div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
