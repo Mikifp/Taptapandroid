@@ -1,0 +1,9 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+# Content converted from the original game's IPA: copyrighted, never commit.
+app/src/main/assets/tracks/
+app/src/main/assets/theme/
