@@ -26,10 +26,17 @@ plain parsing of the bundle):
 * `taptrack.ttr2_track` is an `NSKeyedArchiver` binary plist: one entry per difficulty (1-4) with an embedded
   Standard MIDI File (`rawData`, division 9600, tempo map in meta events).
 * Notes are MIDI pitches 60/61, 62/63, 64/65 = left / centre / right lane. Long notes become hold notes.
-* The screen is 320x480 points; lanes are at x = 55.5 / 160 / 263 and the hit line is near y = 427.
+* The screen is 320x480 points; the hit line is near y = 427.
+* The artist apps built on the same engine (Metallica, Linkin Park, ...) use the same track format. Each
+  track's `info.plist` has `columnCountPerLevel`: Metallica is 3/3/4/5 lanes, the others 3.
+  3 lanes: pitches 60/62/64, and the rare "shake" pitches 61/65/63 fold into left/middle/right.
+  4 and 5 lanes: pitches 60..63 and 60..64 in order.
+* Hold notes: a note is a hold when it lasts longer than the theme's `game.tapAndHoldThresholdDuration`
+  (Metallica: 1 s), otherwise 750 ms.
+* Some apps ship artwork as TIFF; the importers convert it to PNG.
 
 ```sh
-python3 tools/ipa_to_assets.py path/to/game.ipa      # writes into app/src/main/assets (git-ignored)
+python3 tools/ipa_to_assets.py a.ipa [b.ipa ...]      # writes into app/src/main/assets (git-ignored)
 ./gradlew :app:assembleDebug
 ```
 
@@ -53,13 +60,13 @@ Tap a lane when a note reaches the ring. Keep your finger down for hold notes. B
 "GitHub Actions"; it deploys from the default branch). On a phone, open the page and use "Add to Home screen".
 
 * **Demo song** "Neon Pulse" works out of the box.
-* **Your songs:** tap "Import .ipa" and pick your copy of the game. The IPA is read in the browser
+* **Your songs:** tap "Import .ipa" and pick your copy of the game or of an artist app (several files at once work). The IPA is read in the browser
   (zip, binary plist, MIDI), the songs are stored in IndexedDB on that device and nothing is uploaded.
   The song audio is AAC (`.m4a`), which Chrome, Safari and Firefox decode. Chromium builds without
   proprietary codecs cannot.
 * **Timing offset** slider compensates for device or Bluetooth audio latency.
 * Keyboard on desktop: arrows, Z X C or J K L; Esc pauses.
 
-Tests: `cd web && npm test` (judge, demo charts, importer). Set `TTR_IPA=/path/to/game.ipa` to also run the
-importer against a real IPA; with `TTR_CONVERTED=<assets/tracks>` it is compared note-for-note with the
+Tests: `cd web && npm test` (judge, demo charts, importer). Set `TTR_IPAS=a.ipa:b.ipa` to also run the
+importer against real IPAs; with `TTR_CONVERTED=<assets/tracks>` it is compared note-for-note with the
 Python converter.

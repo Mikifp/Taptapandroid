@@ -4,6 +4,9 @@ import kotlin.math.abs
 
 enum class Grade(val label: String, val points: Int) { PERFECT("PERFECT", 100), GREAT("GREAT", 75), GOOD("GOOD", 50), MISS("MISS", 0) }
 
+/** Per-note state, used for drawing. Hold state belongs to the note, not to its lane. */
+enum class NoteState { PENDING, HOLDING, HIT, MISSED, BROKEN }
+
 /** What happened to a note, reported to the UI for feedback effects. */
 data class JudgeEvent(val note: Note, val grade: Grade)
 
@@ -25,9 +28,10 @@ class Judge(notes: List<Note>) {
         const val RELEASE_SLACK_MS = 120
     }
 
-    private class State(val note: Note) { var resolved = false; var holding = false; var lastTick = 0 }
+    private class State(val note: Note) { var resolved = false; var holding = false; var missed = false; var broken = false; var lastTick = 0 }
 
     private val states = notes.sortedBy { it.timeMs }.map { State(it) }
+    private val byNote = java.util.IdentityHashMap<Note, State>().also { m -> states.forEach { m[it.note] = it } }
     val totalNotes = states.size
 
     var score = 0L; private set
@@ -50,7 +54,7 @@ class Judge(notes: List<Note>) {
 
     fun onPress(lane: Int, tMs: Int): JudgeEvent? {
         pressedAt[lane] = true
-        val s = states.filter { !it.resolved && it.note.lane == lane && abs(it.note.timeMs - tMs) <= GOOD_MS }
+        val s = states.filter { !it.resolved && !it.holding && it.note.lane == lane && abs(it.note.timeMs - tMs) <= GOOD_MS }
             .minByOrNull { abs(it.note.timeMs - tMs) } ?: return null
         val d = abs(s.note.timeMs - tMs)
         val grade = when { d <= PERFECT_MS -> Grade.PERFECT; d <= GREAT_MS -> Grade.GREAT; else -> Grade.GOOD }
@@ -63,7 +67,7 @@ class Judge(notes: List<Note>) {
         pressedAt[lane] = false
         val s = states.firstOrNull { it.holding && it.note.lane == lane } ?: return null
         s.holding = false; s.resolved = true
-        return if (tMs < s.note.endMs - RELEASE_SLACK_MS) { breakStreak(); counts[Grade.MISS.ordinal]++; JudgeEvent(s.note, Grade.MISS) } else null
+        return if (tMs < s.note.endMs - RELEASE_SLACK_MS) { s.broken = true; breakStreak(); counts[Grade.MISS.ordinal]++; JudgeEvent(s.note, Grade.MISS) } else null
     }
 
     /** Resolves missed notes and pays out held notes. Returns events produced. */
@@ -77,7 +81,7 @@ class Judge(notes: List<Note>) {
                 }
                 if (tMs >= s.note.endMs) { s.holding = false; s.resolved = true }
             } else if (tMs - s.note.timeMs > GOOD_MS) {
-                s.resolved = true; breakStreak(); counts[Grade.MISS.ordinal]++
+                s.resolved = true; s.missed = true; breakStreak(); counts[Grade.MISS.ordinal]++
                 (out ?: mutableListOf<JudgeEvent>().also { out = it }).add(JudgeEvent(s.note, Grade.MISS))
             }
         }
@@ -85,7 +89,18 @@ class Judge(notes: List<Note>) {
     }
 
     fun isHolding(lane: Int) = states.any { it.holding && it.note.lane == lane }
-    fun isResolved(note: Note) = states.firstOrNull { it.note === note }?.resolved ?: true
+    fun isResolved(note: Note) = byNote[note]?.resolved ?: true
+
+    fun noteState(note: Note): NoteState {
+        val s = byNote[note] ?: return NoteState.HIT
+        return when {
+            s.holding -> NoteState.HOLDING
+            !s.resolved -> NoteState.PENDING
+            s.missed -> NoteState.MISSED
+            s.broken -> NoteState.BROKEN
+            else -> NoteState.HIT
+        }
+    }
 
     private fun award(g: Grade) {
         score += g.points.toLong() * multiplier

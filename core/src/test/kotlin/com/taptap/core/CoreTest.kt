@@ -39,6 +39,23 @@ class JudgeTest {
         assertTrue(j.update(10_000).isEmpty()); assertTrue(j.resolvedAll)
     }
 
+    @Test fun holdStateIsPerNoteNotPerLane() {
+        val a = Note(1000, 1, 1000); val b = Note(2000, 1, 1000); val c = Note(4000, 1, 500)
+        val j = Judge(listOf(a, b, c))
+        j.onPress(1, 1000)
+        assertEquals(listOf(NoteState.HOLDING, NoteState.PENDING, NoteState.PENDING), listOf(a, b, c).map { j.noteState(it) })
+        assertNull(j.onRelease(1, 2000)); j.update(2000)
+        j.onPress(1, 2010)
+        assertEquals(listOf(NoteState.HIT, NoteState.HOLDING, NoteState.PENDING), listOf(a, b, c).map { j.noteState(it) })
+        j.onRelease(1, 2400); assertEquals(NoteState.BROKEN, j.noteState(b))
+        j.update(4000 + Judge.GOOD_MS + 1); assertEquals(NoteState.MISSED, j.noteState(c))
+    }
+
+    @Test fun aHeldNoteCannotBePressedAgain() {
+        val j = Judge(listOf(Note(1000, 0, 1000)))
+        assertNotNull(j.onPress(0, 1000)); assertNull(j.onPress(0, 1010))
+    }
+
     @Test fun accuracyAndStars() {
         val j = Judge(listOf(Note(100, 0), Note(200, 0)))
         j.onPress(0, 100); j.onPress(0, 200)
@@ -54,6 +71,13 @@ class DataTest {
         assertEquals("T", t.title); assertNull(t.artworkFile)
         assertEquals(listOf(Note(100, 0, 900), Note(500, 2, 0)), t.levels[1])
         assertTrue(t.levels[1]!![0].isHold)
+    }
+
+    @Test fun trackJsonLanesAndBackground() {
+        val t = Track.fromJson("""{"id":"x","title":"T","levels":{"1":[[1,0,0]],"4":[[1,4,0]]},"lanes":{"1":3,"4":5},"background":"background.jpg"}""")
+        assertEquals(3, t.laneCount(1)); assertEquals(5, t.laneCount(4)); assertEquals(3, t.laneCount(9))
+        assertEquals("background.jpg", t.backgroundFile)
+        assertEquals(3, Track.fromJson("""{"id":"x","title":"T","levels":{}}""").laneCount(1))
     }
 
     @Test fun demoChartsAreOrderedValidAndGetDenser() {

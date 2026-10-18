@@ -10,7 +10,8 @@ export class Judge {
   /** @param {{timeMs:number, lane:number, durMs:number}[]} notes */
   constructor(notes) {
     this.states = [...notes].sort((a, b) => a.timeMs - b.timeMs)
-      .map((note) => ({ note, resolved: false, holding: false, lastTick: 0 }));
+      .map((note) => ({ note, resolved: false, holding: false, missed: false, broken: false, lastTick: 0 }));
+    this.byNote = new Map(this.states.map((st) => [st.note, st]));
     this.score = 0; this.streak = 0; this.bestStreak = 0;
     this.counts = { PERFECT: 0, GREAT: 0, GOOD: 0, MISS: 0 };
   }
@@ -47,7 +48,7 @@ export class Judge {
     if (!s) return null;
     s.holding = false; s.resolved = true;
     if (tMs < s.note.timeMs + s.note.durMs - RELEASE_SLACK_MS) {
-      this.streak = 0; this.counts.MISS++;
+      s.broken = true; this.streak = 0; this.counts.MISS++;
       return { note: s.note, grade: 'MISS' };
     }
     return null;
@@ -65,7 +66,7 @@ export class Judge {
         }
         if (tMs >= end) { s.holding = false; s.resolved = true; }
       } else if (tMs - s.note.timeMs > GOOD_MS) {
-        s.resolved = true; this.streak = 0; this.counts.MISS++;
+        s.resolved = true; s.missed = true; this.streak = 0; this.counts.MISS++;
         out.push({ note: s.note, grade: 'MISS' });
       }
     }
@@ -73,7 +74,16 @@ export class Judge {
   }
 
   isHolding(lane) { return this.states.some((s) => s.holding && s.note.lane === lane); }
-  isResolved(note) { const s = this.states.find((x) => x.note === note); return s ? s.resolved : true; }
+  isResolved(note) { const s = this.byNote.get(note); return s ? s.resolved : true; }
+
+  /** 'pending' | 'holding' | 'hit' | 'missed' (never hit) | 'broken' (hold released early). Per note, not per lane. */
+  noteState(note) {
+    const s = this.byNote.get(note);
+    if (!s) return 'hit';
+    if (s.holding) return 'holding';
+    if (!s.resolved) return 'pending';
+    return s.missed ? 'missed' : s.broken ? 'broken' : 'hit';
+  }
 
   stars() {
     const a = this.accuracy;

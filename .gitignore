@@ -7,3 +7,5 @@ local.properties
 # Content converted from the original game's IPA: copyrighted, never commit.
 app/src/main/assets/tracks/
 app/src/main/assets/theme/
+__pycache__/
+node_modules/

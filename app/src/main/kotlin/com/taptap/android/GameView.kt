@@ -19,6 +19,7 @@ import com.taptap.core.Grade
 import com.taptap.core.Judge
 import com.taptap.core.JudgeEvent
 import com.taptap.core.Note
+import com.taptap.core.NoteState
 import com.taptap.core.Track
 import kotlin.math.max
 import kotlin.math.min
@@ -44,14 +45,28 @@ class GameView(
         const val HIT_Y = 427f
         const val APPROACH_MS = 1500
         const val LEAD_IN_MS = 3000
-        val LANE_X = floatArrayOf(55.5f, 160f, 263f)
-        val LANE_COLOR = intArrayOf(Color.rgb(255, 77, 109), Color.rgb(255, 210, 63), Color.rgb(63, 167, 255))
+        private val RED = Color.rgb(255, 77, 109)
+        private val YELLOW = Color.rgb(255, 210, 63)
+        private val GREEN = Color.rgb(90, 255, 120)
+        private val BLUE = Color.rgb(63, 167, 255)
+        private val PURPLE = Color.rgb(199, 125, 255)
+        val PALETTES = mapOf(
+            3 to intArrayOf(RED, YELLOW, BLUE),
+            4 to intArrayOf(RED, YELLOW, GREEN, BLUE),
+            5 to intArrayOf(RED, YELLOW, GREEN, BLUE, PURPLE),
+        )
+        val ACCENT = YELLOW
     }
 
     var previousBest = 0L
     var onFinished: (Long) -> Boolean = { false }
 
     private val notes: List<Note> = track.levels[level].orEmpty()
+    private val lanes = track.laneCount(level)
+    private val laneW = W / lanes
+    private val colors = PALETTES[lanes] ?: PALETTES.getValue(5)
+    private val noteR = min(26f, laneW * 0.4f)
+    private fun laneX(i: Int) = (i + 0.5f) * laneW
     private val judge = Judge(notes)
     private val lock = Any()
     private val chartEnd = (notes.maxOfOrNull { it.endMs } ?: 0) + 1200
@@ -73,9 +88,9 @@ class GameView(
     // feedback
     private var feedback: Grade? = null
     private var feedbackAt = 0L
-    private val flashUntil = LongArray(3)
+    private val flashUntil = LongArray(lanes)
     private val pointerLane = SparseIntArray()
-    private val laneDown = IntArray(3)
+    private val laneDown = IntArray(lanes)
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
@@ -194,7 +209,7 @@ class GameView(
 
     private fun laneAt(x: Float): Int {
         val vx = (x - offX) / scale
-        return if (vx < W / 3) 0 else if (vx < 2 * W / 3) 1 else 2
+        return (vx / laneW).toInt().coerceIn(0, lanes - 1)
     }
 
     override fun onTouchEvent(ev: MotionEvent): Boolean {
@@ -279,36 +294,66 @@ class GameView(
         }
     }
 
+    private fun withAlpha(color: Int, a: Int) = Color.argb(a, Color.red(color), Color.green(color), Color.blue(color))
+
     private fun drawLanes(c: Canvas) {
         val now = System.nanoTime()
-        for (i in 0 until 3) {
+        for (i in 0 until lanes) {
             val lit = laneDown[i] > 0 || now < flashUntil[i]
             paint.shader = null
-            paint.color = Color.argb(if (lit) 90 else 36, Color.red(LANE_COLOR[i]), Color.green(LANE_COLOR[i]), Color.blue(LANE_COLOR[i]))
-            c.drawRect(i * W / 3 + 3, 0f, (i + 1) * W / 3 - 3, H, paint)
-            paint.color = LANE_COLOR[i]; paint.style = Paint.Style.STROKE; paint.strokeWidth = if (lit) 5f else 3f
-            c.drawCircle(LANE_X[i], HIT_Y, 27f, paint)
+            paint.color = withAlpha(colors[i], if (lit) 90 else 36)
+            c.drawRect(i * laneW + 3, 0f, (i + 1) * laneW - 3, H, paint)
+            paint.color = colors[i]; paint.style = Paint.Style.STROKE; paint.strokeWidth = if (lit) 5f else 3f
+            c.drawCircle(laneX(i), HIT_Y, noteR + 1f, paint)
             paint.style = Paint.Style.FILL
         }
     }
 
+    private class Visible(val note: Note, val state: NoteState)
+
     private fun drawNotes(c: Canvas) {
         val t = songMs
+        val visible = ArrayList<Visible>()
         for (n in notes) {
             if (n.timeMs > t + APPROACH_MS) break
-            if (n.endMs < t - 250) continue
-            val held = n.isHold && judge.isHolding(n.lane)
-            if (judge.isResolved(n) && !held) continue
-            val headY = if (held) HIT_Y else yFor(n.timeMs, t)
-            if (n.isHold) {
-                val tailY = yFor(n.endMs, t)
-                paint.color = Color.argb(if (held) 200 else 130, Color.red(LANE_COLOR[n.lane]), Color.green(LANE_COLOR[n.lane]), Color.blue(LANE_COLOR[n.lane]))
-                rect.set(LANE_X[n.lane] - 10, tailY, LANE_X[n.lane] + 10, headY); c.drawRoundRect(rect, 10f, 10f, paint)
-            }
-            val r = 12f + 14f * ((headY + 20f) / (HIT_Y + 20f)).coerceIn(0f, 1f)
-            paint.color = LANE_COLOR[n.lane]; c.drawCircle(LANE_X[n.lane], headY, r, paint)
-            paint.color = Color.argb(160, 255, 255, 255); c.drawCircle(LANE_X[n.lane], headY, r * 0.45f, paint)
+            if (n.endMs < t - 300) continue
+            val st = judge.noteState(n)
+            if (st == NoteState.HIT || st == NoteState.BROKEN || (st == NoteState.MISSED && !n.isHold)) continue
+            visible.add(Visible(n, st))
         }
+        c.save(); c.clipRect(0f, 0f, W, H)
+        // Bodies first so no head is covered by another note's tail. State is per note: the next hold in a
+        // lane stays at its real position while the current one is being held.
+        for (v in visible) {
+            val n = v.note
+            if (!n.isHold) continue
+            val headY = if (v.state == NoteState.HOLDING) HIT_Y else yFor(n.timeMs, t)
+            val tailY = yFor(n.endMs, t)
+            if (tailY >= headY) continue
+            val w = laneW * 0.3f
+            val x = laneX(n.lane)
+            paint.color = withAlpha(if (v.state == NoteState.MISSED) Color.GRAY else colors[n.lane],
+                when (v.state) { NoteState.HOLDING -> 215; NoteState.MISSED -> 75; else -> 130 })
+            rect.set(x - w / 2, tailY, x + w / 2, headY); c.drawRoundRect(rect, w / 2, w / 2, paint)
+            paint.color = Color.argb(if (v.state == NoteState.HOLDING) 230 else 90, 255, 255, 255)
+            rect.set(x - w / 6, tailY + 2f, x + w / 6, max(tailY + 2f, headY - 2f)); c.drawRoundRect(rect, w / 6, w / 6, paint)
+        }
+        for (v in visible) {
+            val n = v.note
+            val x = laneX(n.lane)
+            val headY = if (v.state == NoteState.HOLDING) HIT_Y else yFor(n.timeMs, t)
+            val k = ((headY + 20f) / (HIT_Y + 20f)).coerceIn(0f, 1f)
+            val r = noteR * (0.45f + 0.55f * k) * (if (v.state == NoteState.HOLDING) 1.12f else 1f)
+            val missed = v.state == NoteState.MISSED
+            paint.color = if (missed) Color.argb(100, 136, 136, 136) else colors[n.lane]
+            c.drawCircle(x, headY, r, paint)
+            paint.color = Color.argb(if (missed) 60 else 160, 255, 255, 255); c.drawCircle(x, headY, r * 0.45f, paint)
+            if (n.isHold) {
+                paint.style = Paint.Style.STROKE; paint.strokeWidth = 2.5f; paint.color = Color.argb(if (missed) 90 else 255, 255, 255, 255)
+                c.drawCircle(x, headY, r + 2f, paint); paint.style = Paint.Style.FILL
+            }
+        }
+        c.restore()
     }
 
     private fun yFor(noteMs: Int, t: Double): Float {
@@ -324,7 +369,7 @@ class GameView(
 
     private fun drawHud(c: Canvas) {
         text(c, judge.score.toString(), 10f, 30f, 24f, Color.WHITE, Paint.Align.LEFT)
-        text(c, "x${judge.multiplier}", W - 10f, 30f, 26f, if (judge.multiplier > 1) LANE_COLOR[1] else Color.LTGRAY, Paint.Align.RIGHT)
+        text(c, "x${judge.multiplier}", W - 10f, 30f, 26f, if (judge.multiplier > 1) ACCENT else Color.LTGRAY, Paint.Align.RIGHT)
         if (judge.streak >= 5) text(c, "${judge.streak} streak", W / 2, 58f, 16f, Color.argb(200, 255, 255, 255))
         val prog = if (track.durationMs > 0) (songMs / track.durationMs).toFloat().coerceIn(0f, 1f) else 0f
         paint.color = Color.argb(160, 255, 255, 255); c.drawRect(0f, 0f, W * prog, 3f, paint)
@@ -360,7 +405,7 @@ class GameView(
         text(c, track.title, W / 2, 70f, 22f, Color.WHITE)
         text(c, Difficulty.name(level), W / 2, 94f, 14f, Color.LTGRAY, bold = false)
         val stars = judge.stars()
-        text(c, "★".repeat(stars) + "☆".repeat(5 - stars), W / 2, 150f, 34f, LANE_COLOR[1])
+        text(c, "★".repeat(stars) + "☆".repeat(5 - stars), W / 2, 150f, 34f, ACCENT)
         text(c, judge.score.toString(), W / 2, 205f, 40f, Color.WHITE)
         if (newRecord) text(c, "NEW BEST!", W / 2, 232f, 18f, Color.rgb(90, 255, 120))
         else if (previousBest > 0) text(c, "Best $previousBest", W / 2, 232f, 14f, Color.LTGRAY, bold = false)

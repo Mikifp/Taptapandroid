@@ -23,6 +23,7 @@ export async function saveImport({ songs, background }) {
     tx.objectStore('songs').put(s.meta);
     tx.objectStore('blobs').put(new Blob([s.audio], { type: 'audio/mp4' }), s.meta.id + ':audio');
     if (s.artwork) tx.objectStore('blobs').put(new Blob([s.artwork], { type: 'image/png' }), s.meta.id + ':art');
+    if (s.background) tx.objectStore('blobs').put(new Blob([s.background], { type: 'image/jpeg' }), s.meta.id + ':bg');
   }
   if (background) tx.objectStore('blobs').put(new Blob([background], { type: 'image/jpeg' }), 'background');
   await done(tx);

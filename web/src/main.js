@@ -5,7 +5,8 @@ import { Game } from './game.js';
 
 const $ = (id) => document.getElementById(id);
 const LEVEL_NAMES = { 1: 'Easy', 2: 'Medium', 3: 'Hard', 4: 'Expert' };
-let actx = null, game = null, background = null;
+let actx = null, game = null;
+const backgrounds = new Map(); // key -> ImageBitmap | false
 const urls = [];
 
 const ls = {
@@ -64,6 +65,18 @@ async function loadBuffer(meta) {
   }
 }
 
+/** The song's own theme backdrop, else the shared one, else nothing. */
+async function loadBackground(id) {
+  for (const key of [id + ':bg', 'background']) {
+    if (!backgrounds.has(key)) {
+      const b = await store.getBlob(key).catch(() => null);
+      backgrounds.set(key, b ? await createImageBitmap(b).catch(() => false) : false);
+    }
+    if (backgrounds.get(key)) return backgrounds.get(key);
+  }
+  return null;
+}
+
 async function play(meta, level) {
   const status = $('status');
   try {
@@ -71,14 +84,11 @@ async function play(meta, level) {
     await actx.resume();
     status.textContent = 'Loading…';
     const buffer = await loadBuffer(meta);
-    if (background === null) {
-      const b = await store.getBlob('background').catch(() => null);
-      background = b ? await createImageBitmap(b).catch(() => false) : false;
-    }
+    const background = await loadBackground(meta.id);
     status.textContent = '';
     $('menu').hidden = true; $('stage').hidden = false;
     game = new Game($('canvas'), actx, meta, buffer, {
-      level, offsetMs: Number($('offset').value), background: background || null, best: best(meta.id, level),
+      level, offsetMs: Number($('offset').value), background, best: best(meta.id, level),
       onFinish: (score) => {
         const isBest = score > best(meta.id, level);
         if (isBest) ls.set(`best:${meta.id}:${level}`, String(score));
@@ -95,26 +105,31 @@ async function play(meta, level) {
 }
 
 $('import').onchange = async (ev) => {
-  const file = ev.target.files[0];
+  const files = [...ev.target.files];
   ev.target.value = '';
-  if (!file) return;
+  if (!files.length) return;
   const status = $('status');
+  let total = 0;
   try {
-    status.textContent = 'Opening ' + file.name + '…';
-    const result = await readIpa(file, (m) => { status.textContent = m; });
-    status.textContent = 'Saving…';
-    await store.saveImport(result);
-    background = null;
-    status.textContent = `Imported ${result.songs.length} song${result.songs.length === 1 ? '' : 's'}.`;
+    for (const file of files) {
+      status.textContent = 'Opening ' + file.name + '…';
+      const result = await readIpa(file, (m) => { status.textContent = `${file.name}: ${m}`; });
+      status.textContent = 'Saving…';
+      await store.saveImport(result);
+      total += result.songs.length;
+    }
+    backgrounds.clear();
+    status.textContent = `Imported ${total} song${total === 1 ? '' : 's'}.`;
     await render();
   } catch (e) {
     status.textContent = 'Import failed: ' + (e.message || e);
+    await render();
   }
 };
 
 $('clear').onclick = async () => {
   if (!confirm('Remove all imported songs from this device?')) return;
-  await store.clearAll(); background = null;
+  await store.clearAll(); backgrounds.clear();
   $('status').textContent = 'Imported songs removed.';
   render();
 };

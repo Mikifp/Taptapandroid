@@ -66,13 +66,48 @@ export function unarchive(bytes) {
   return dec(root.$top.root);
 }
 
-/** Reads a few string/real values from an XML or binary Info plist. */
+const unesc = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+
+/** Parses an XML property list into plain JS values (dict -> object, array -> array). */
+export function parseXmlPlist(text) {
+  const re = /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!DOCTYPE[^>]*>|<(\/?)([A-Za-z]+)[^>]*?(\/?)>|([^<]+)/g;
+  const tokens = [];
+  for (const m of text.matchAll(re)) {
+    if (m[2]) tokens.push({ tag: m[2], close: m[1] === '/', self: m[3] === '/' });
+    else if (m[4] !== undefined && m[4].trim() !== '') tokens.push({ text: unesc(m[4].trim()) });
+  }
+  let i = 0;
+  const scalar = (tag) => {
+    const t = tokens[i + 1];
+    const text = t && t.text !== undefined ? t.text : '';
+    i += t && t.text !== undefined ? 3 : 2; // open, text, close
+    if (tag === 'integer' || tag === 'real') return Number(text);
+    return text; // string, key, date, data
+  };
+  function value() {
+    const t = tokens[i];
+    if (t.tag === 'true') { i++; return true; }
+    if (t.tag === 'false') { i++; return false; }
+    if (t.tag === 'dict' || t.tag === 'array') {
+      const isDict = t.tag === 'dict';
+      i++;
+      const out = isDict ? {} : [];
+      if (t.self) return out;
+      while (!(tokens[i].close && tokens[i].tag === t.tag)) {
+        if (isDict) { const k = scalar('key'); out[k] = value(); } else out.push(value());
+      }
+      i++;
+      return out;
+    }
+    if (t.self) { i++; return ''; }
+    return scalar(t.tag);
+  }
+  while (tokens[i] && tokens[i].tag !== 'dict' && tokens[i].tag !== 'array') i++;
+  return value();
+}
+
+/** Reads an Info.plist in either XML or binary form. */
 export function readInfo(bytes) {
   if (td.decode(bytes.subarray(0, 6)) === 'bplist') return parseBplist(bytes);
-  const text = td.decode(bytes), out = {};
-  const unesc = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
-  for (const m of text.matchAll(/<key>([^<]*)<\/key>\s*<(string|real|integer)>([^<]*)<\/\2>/g)) {
-    out[unesc(m[1])] = m[2] === 'string' ? unesc(m[3]) : Number(m[3]);
-  }
-  return out;
+  return parseXmlPlist(td.decode(bytes));
 }

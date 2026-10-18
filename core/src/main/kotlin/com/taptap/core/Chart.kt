@@ -16,8 +16,15 @@ class Track(
     val audioFile: String?,
     val artworkFile: String?,
     val levels: Map<Int, List<Note>>,
+    /** Lane (column) count per level; levels not listed have [DEFAULT_LANES]. */
+    val lanes: Map<Int, Int> = emptyMap(),
+    val backgroundFile: String? = null,
 ) {
+    fun laneCount(level: Int) = lanes[level] ?: DEFAULT_LANES
+
     companion object {
+        const val DEFAULT_LANES = 3
+
         /** Parses the track.json written by tools/ipa_to_assets.py. */
         fun fromJson(text: String): Track {
             val o = JSONObject(text)
@@ -30,10 +37,13 @@ class Track(
                     Note(n.getInt(0), n.getInt(1), n.getInt(2))
                 }.sortedBy { n -> n.timeMs }
             }
+            val lanes = HashMap<Int, Int>()
+            o.optJSONObject("lanes")?.let { ln -> for (k in ln.keys()) lanes[k.toInt()] = ln.getInt(k) }
             return Track(
                 o.getString("id"), o.getString("title"), o.optString("artist"),
                 o.optInt("durationMs"), o.optString("audio").ifEmpty { null },
                 o.optString("artwork").ifEmpty { null }, levels,
+                lanes, o.optString("background").ifEmpty { null },
             )
         }
     }

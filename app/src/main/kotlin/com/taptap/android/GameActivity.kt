@@ -27,7 +27,7 @@ class GameActivity : Activity() {
         val level = intent.getIntExtra(EXTRA_LEVEL, 1)
         if (track == null || track.levels[level] == null) { finish(); return }
         try {
-            view = GameView(this, track, level, repo.player(track), repo.background()) { finish() }
+            view = GameView(this, track, level, repo.player(track), repo.background(track)) { finish() }
                 .also { setContentView(it) }
             val best = repo.best(track, level)
             view?.previousBest = best

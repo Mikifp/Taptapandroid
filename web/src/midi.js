@@ -1,6 +1,17 @@
-// Standard MIDI file -> TTR notes. Pitches 60/61, 62/63, 64/65 are the left, centre and right lane.
-const LANE_OF_PITCH = { 60: 0, 61: 0, 62: 1, 63: 1, 64: 2, 65: 2 };
-export const HOLD_MIN_MS = 450;
+// Standard MIDI file -> TTR notes.
+export const DEFAULT_COLUMNS = 3;
+export const DEFAULT_HOLD_MIN_MS = 750; // a theme.cfg may override it (game.tapAndHoldThresholdDuration, seconds)
+
+/**
+ * MIDI pitch -> lane for a level with `cols` columns (info.plist columnCountPerLevel). From the themes' Lua:
+ * 3 columns claim 60/62/64 and the "shake" pitches 61/65/63 fall back to left/middle/right;
+ * 4 and 5 columns use consecutive pitches from 60.
+ */
+export function laneMap(cols) {
+  if (cols === 4) return { 60: 0, 61: 1, 62: 2, 63: 3 };
+  if (cols === 5) return { 60: 0, 61: 1, 62: 2, 63: 3, 64: 4 };
+  return { 60: 0, 61: 0, 62: 1, 65: 1, 63: 2, 64: 2 };
+}
 
 function vlq(d, i) { let v = 0; for (;;) { const b = d[i++]; v = v * 128 + (b & 0x7F); if (!(b & 0x80)) return [v, i]; } }
 
@@ -36,7 +47,8 @@ export function parseMidi(d) {
   return { division, events };
 }
 
-export function midiToNotes(d) {
+export function midiToNotes(d, cols = DEFAULT_COLUMNS, holdMinMs = DEFAULT_HOLD_MIN_MS) {
+  const lanes = laneMap(cols);
   const { division, events } = parseMidi(d);
   const tempos = events.filter((e) => e.kind === 'tempo').map((e) => [e.t, e.a]).sort((a, b) => a[0] - b[0]);
   if (!tempos.length || tempos[0][0] > 0) tempos.unshift([0, 500000]);
@@ -51,12 +63,12 @@ export function midiToNotes(d) {
   };
   const open = new Map(), notes = [];
   for (const e of events) {
-    if (!(e.a in LANE_OF_PITCH)) continue;
+    if (!(e.a in lanes)) continue;
     if (e.kind === 'on') open.set(e.a, e.t);
     else if (e.kind === 'off' && open.has(e.a)) {
       const start = ms(open.get(e.a)); open.delete(e.a);
       const dur = ms(e.t) - start;
-      notes.push({ timeMs: Math.round(start), lane: LANE_OF_PITCH[e.a], durMs: dur >= HOLD_MIN_MS ? Math.round(dur) : 0 });
+      notes.push({ timeMs: Math.round(start), lane: lanes[e.a], durMs: dur >= holdMinMs ? Math.round(dur) : 0 });
     }
   }
   return notes.sort((a, b) => a.timeMs - b.timeMs || a.lane - b.lane);

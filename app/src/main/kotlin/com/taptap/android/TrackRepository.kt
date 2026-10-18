@@ -49,9 +49,14 @@ class TrackRepository(private val ctx: Context) {
         try { ctx.assets.open("tracks/${t.id}/$it").use { s -> BitmapFactory.decodeStream(s) } } catch (_: IOException) { null }
     }
 
-    fun background(): Bitmap? = try {
-        ctx.assets.open("theme/background.jpg").use { BitmapFactory.decodeStream(it) }
-    } catch (_: IOException) { null }
+    /** The track's own theme backdrop, else the shared one, else null. */
+    fun background(t: Track): Bitmap? {
+        val paths = listOfNotNull(t.backgroundFile?.let { "tracks/${t.id}/$it" }, "theme/background.jpg")
+        for (p in paths) {
+            try { return ctx.assets.open(p).use { BitmapFactory.decodeStream(it) } } catch (_: IOException) { /* try next */ }
+        }
+        return null
+    }
 
     fun best(t: Track, level: Int): Long = prefs.getLong("${t.id}:$level", 0L)
 

@@ -1,11 +1,24 @@
 import { Judge } from './judge.js';
 
 const W = 320, H = 480, HIT_Y = 427, APPROACH_MS = 1500, LEAD_IN_S = 3;
-const LANE_X = [55.5, 160, 263];
-const LANE_COLOR = ['#ff4d6d', '#ffd23f', '#3fa7ff'];
+const PALETTES = {
+  3: ['#ff4d6d', '#ffd23f', '#3fa7ff'],
+  4: ['#ff4d6d', '#ffd23f', '#5aff78', '#3fa7ff'],
+  5: ['#ff4d6d', '#ffd23f', '#5aff78', '#3fa7ff', '#c77dff'],
+};
+const ACCENT = '#ffd23f';
 const GRADE_COLOR = { PERFECT: '#5aff78', GREAT: '#ffe65a', GOOD: '#78c8ff', MISS: '#ff5050' };
 const DIFFICULTY = { 1: 'Easy', 2: 'Medium', 3: 'Hard', 4: 'Expert' };
-const KEYS = { ArrowLeft: 0, KeyZ: 0, KeyJ: 0, KeyA: 0, ArrowDown: 1, KeyX: 1, KeyK: 1, KeyS: 1, ArrowRight: 2, KeyC: 2, KeyL: 2, KeyD: 2 };
+// Keyboard: several rows work at once, the Nth key of a row is lane N.
+const KEY_ROWS = [
+  ['KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB'], ['KeyJ', 'KeyK', 'KeyL', 'Semicolon', 'Quote'], ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG'],
+];
+const ARROWS = { 3: ['ArrowLeft', 'ArrowDown', 'ArrowRight'], 4: ['ArrowLeft', 'ArrowDown', 'ArrowUp', 'ArrowRight'] };
+function keyMap(n) {
+  const m = {};
+  for (const row of [...KEY_ROWS, ARROWS[n] || []]) row.slice(0, n).forEach((code, lane) => { m[code] = lane; });
+  return m;
+}
 
 export class Game {
   /**
@@ -19,11 +32,16 @@ export class Game {
   constructor(canvas, actx, song, buffer, opts) {
     this.canvas = canvas; this.g = canvas.getContext('2d'); this.actx = actx; this.song = song; this.buffer = buffer; this.o = opts;
     this.notes = song.levels[opts.level] || [];
+    this.lanes = song.lanes?.[opts.level] ?? 3;
+    this.colors = PALETTES[this.lanes] || PALETTES[5];
+    this.keys = keyMap(this.lanes);
+    this.laneW = W / this.lanes;
+    this.noteR = Math.min(26, this.laneW * 0.4);
     this.judge = new Judge(this.notes);
     this.chartEnd = Math.max(0, ...this.notes.map((n) => n.timeMs + n.durMs)) + 1200;
     this.state = 'playing'; // playing | paused | results
     this.songMs = -LEAD_IN_S * 1000;
-    this.ref = null; this.feedback = null; this.flash = [0, 0, 0]; this.down = [0, 0, 0];
+    this.ref = null; this.feedback = null; this.flash = new Array(this.lanes).fill(0); this.down = new Array(this.lanes).fill(0);
     this.pointers = new Map(); this.newRecord = false; this.resultsAt = 0; this.raf = 0; this.dead = false;
     this.scale = 1; this.offX = 0; this.offY = 0;
     this.#bind();
@@ -80,9 +98,9 @@ export class Game {
     on(window, 'keydown', (e) => {
       if (e.repeat) return;
       if (e.code === 'Escape') { this.state === 'paused' ? this.resume() : this.pause(); return; }
-      if (e.code in KEYS) { e.preventDefault(); this.#laneDown('k' + e.code, KEYS[e.code], e.timeStamp); }
+      if (e.code in this.keys) { e.preventDefault(); this.#laneDown('k' + e.code, this.keys[e.code], e.timeStamp); }
     });
-    on(window, 'keyup', (e) => { if (e.code in KEYS) this.#pointerUp('k' + e.code, e.timeStamp); });
+    on(window, 'keyup', (e) => { if (e.code in this.keys) this.#pointerUp('k' + e.code, e.timeStamp); });
     on(document, 'visibilitychange', () => { if (document.hidden) this.pause(); });
   }
 
@@ -101,7 +119,7 @@ export class Game {
     } else if (vy < 40 && vx > W - 60) {
       this.pause();
     } else {
-      this.#laneDown(e.pointerId, vx < W / 3 ? 0 : vx < 2 * W / 3 ? 1 : 2, e.timeStamp);
+      this.#laneDown(e.pointerId, Math.max(0, Math.min(this.lanes - 1, Math.floor(vx / this.laneW))), e.timeStamp);
     }
   }
 
@@ -177,7 +195,9 @@ export class Game {
     const g = this.g, sw = this.canvas.width, sh = this.canvas.height;
     this.#background(g, sw, sh);
     g.save(); g.translate(this.offX, this.offY); g.scale(this.scale, this.scale);
-    this.#lanes(g); this.#drawNotes(g); this.#hud(g);
+    this.#lanes(g);
+    g.save(); g.beginPath(); g.rect(0, 0, W, H); g.clip(); this.#drawNotes(g); g.restore();
+    this.#hud(g);
     if (this.state === 'playing' && this.songMs < 0) this.#countdown(g);
     if (this.state === 'paused') this.#pauseMenu(g);
     if (this.state === 'results') this.#results(g);
@@ -197,36 +217,58 @@ export class Game {
     }
   }
 
+  #laneX(i) { return (i + 0.5) * this.laneW; }
+
   #lanes(g) {
-    const now = performance.now();
-    for (let i = 0; i < 3; i++) {
+    const now = performance.now(), n = this.lanes;
+    for (let i = 0; i < n; i++) {
       const lit = this.down[i] > 0 || now < this.flash[i];
-      g.globalAlpha = lit ? 0.35 : 0.14; g.fillStyle = LANE_COLOR[i];
-      g.fillRect(i * W / 3 + 3, 0, W / 3 - 6, H);
-      g.globalAlpha = 1; g.strokeStyle = LANE_COLOR[i]; g.lineWidth = lit ? 5 : 3;
-      g.beginPath(); g.arc(LANE_X[i], HIT_Y, 27, 0, Math.PI * 2); g.stroke();
+      g.globalAlpha = lit ? 0.35 : 0.14; g.fillStyle = this.colors[i];
+      g.fillRect(i * this.laneW + 3, 0, this.laneW - 6, H);
+      g.globalAlpha = 1; g.strokeStyle = this.colors[i]; g.lineWidth = lit ? 5 : 3;
+      g.beginPath(); g.arc(this.#laneX(i), HIT_Y, this.noteR + 1, 0, Math.PI * 2); g.stroke();
     }
   }
 
   #y(noteMs) { return -20 + (1 - (noteMs - this.songMs) / APPROACH_MS) * (HIT_Y + 20); }
 
   #drawNotes(g) {
-    const t = this.songMs - this.o.offsetMs;
-    for (const n of this.notes) {
-      if (n.timeMs > t + APPROACH_MS) break;
-      if (n.timeMs + n.durMs < t - 250) continue;
-      const held = n.durMs > 0 && this.judge.isHolding(n.lane);
-      if (this.judge.isResolved(n) && !held) continue;
-      const headY = held ? HIT_Y : this.#y(n.timeMs + this.o.offsetMs);
-      const x = LANE_X[n.lane];
-      if (n.durMs > 0) {
-        const tailY = this.#y(n.timeMs + n.durMs + this.o.offsetMs);
-        g.globalAlpha = held ? 0.8 : 0.5; g.fillStyle = LANE_COLOR[n.lane];
-        g.beginPath(); g.roundRect(x - 10, tailY, 20, headY - tailY, 10); g.fill(); g.globalAlpha = 1;
-      }
-      const r = 12 + 14 * Math.min(1, Math.max(0, (headY + 20) / (HIT_Y + 20)));
-      g.fillStyle = LANE_COLOR[n.lane]; g.beginPath(); g.arc(x, headY, r, 0, Math.PI * 2); g.fill();
+    const off = this.o.offsetMs, t = this.songMs - off;
+    const visible = [];
+    for (const note of this.notes) {
+      if (note.timeMs > t + APPROACH_MS) break;
+      if (note.timeMs + note.durMs < t - 300) continue;
+      const state = this.judge.noteState(note);
+      if (state === 'hit' || state === 'broken' || (state === 'missed' && note.durMs === 0)) continue;
+      visible.push({ note, state });
+    }
+    // Bodies first so no head is ever covered by another note's tail. State is per note: the next hold
+    // in a lane stays at its real position while the current one is being held.
+    for (const { note, state } of visible) {
+      if (note.durMs <= 0) continue;
+      const x = this.#laneX(note.lane), w = this.laneW * 0.3;
+      const headY = state === 'holding' ? HIT_Y : this.#y(note.timeMs + off);
+      const tailY = this.#y(note.timeMs + note.durMs + off);
+      if (tailY >= headY) continue;
+      const color = state === 'missed' ? '#888' : this.colors[note.lane];
+      g.globalAlpha = state === 'holding' ? 0.85 : state === 'missed' ? 0.3 : 0.5;
+      g.fillStyle = color; g.beginPath(); g.roundRect(x - w / 2, tailY, w, headY - tailY, w / 2); g.fill();
+      g.globalAlpha = state === 'holding' ? 0.9 : 0.35; g.fillStyle = '#fff';
+      g.beginPath(); g.roundRect(x - w / 6, tailY + 2, w / 3, Math.max(0, headY - tailY - 4), w / 6); g.fill();
+      g.globalAlpha = 1;
+    }
+    for (const { note, state } of visible) {
+      const x = this.#laneX(note.lane);
+      const headY = state === 'holding' ? HIT_Y : this.#y(note.timeMs + off);
+      const k = Math.min(1, Math.max(0, (headY + 20) / (HIT_Y + 20)));
+      const r = this.noteR * (0.45 + 0.55 * k) * (state === 'holding' ? 1.12 : 1);
+      const missed = state === 'missed';
+      g.globalAlpha = missed ? 0.4 : 1;
+      g.fillStyle = missed ? '#888' : this.colors[note.lane];
+      g.beginPath(); g.arc(x, headY, r, 0, Math.PI * 2); g.fill();
       g.fillStyle = 'rgba(255,255,255,.63)'; g.beginPath(); g.arc(x, headY, r * 0.45, 0, Math.PI * 2); g.fill();
+      if (note.durMs > 0) { g.strokeStyle = '#fff'; g.lineWidth = 2.5; g.beginPath(); g.arc(x, headY, r + 2, 0, Math.PI * 2); g.stroke(); }
+      g.globalAlpha = 1;
     }
   }
 
@@ -237,7 +279,7 @@ export class Game {
   #hud(g) {
     const j = this.judge;
     this.#text(g, String(j.score), 10, 30, 24, '#fff', 'left');
-    this.#text(g, 'x' + j.multiplier, W - 10, 30, 26, j.multiplier > 1 ? LANE_COLOR[1] : '#ccc', 'right');
+    this.#text(g, 'x' + j.multiplier, W - 10, 30, 26, j.multiplier > 1 ? ACCENT : '#ccc', 'right');
     if (j.streak >= 5) this.#text(g, j.streak + ' streak', W / 2, 58, 16, 'rgba(255,255,255,.8)');
     const prog = this.buffer.duration ? Math.min(1, Math.max(0, this.songMs / 1000 / this.buffer.duration)) : 0;
     g.fillStyle = 'rgba(255,255,255,.63)'; g.fillRect(0, 0, W * prog, 3);
@@ -271,7 +313,7 @@ export class Game {
     this.#text(g, this.song.title, W / 2, 70, 22, '#fff');
     this.#text(g, DIFFICULTY[this.o.level] || '', W / 2, 94, 14, '#ccc', 'center', false);
     const s = j.stars();
-    this.#text(g, '★'.repeat(s) + '☆'.repeat(5 - s), W / 2, 150, 34, LANE_COLOR[1]);
+    this.#text(g, '★'.repeat(s) + '☆'.repeat(5 - s), W / 2, 150, 34, ACCENT);
     this.#text(g, String(j.score), W / 2, 205, 40, '#fff');
     if (this.newRecord) this.#text(g, 'NEW BEST!', W / 2, 232, 18, GRADE_COLOR.PERFECT);
     else if (this.o.best > 0) this.#text(g, 'Best ' + this.o.best, W / 2, 232, 14, '#ccc', 'center', false);
